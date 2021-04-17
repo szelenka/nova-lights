@@ -19,3 +19,10 @@ Download the respective `.mpy` files to place in the `lib` folder on the device:
 - https://github.com/adafruit/Adafruit_Blinka/releases
 - https://github.com/adafruit/Adafruit_CircuitPython_Pypixelbuf/releases
 - https://github.com/adafruit/Adafruit_CircuitPython_NeoPixel/releases
+
+### For asyncio
+In CircuitPython 6.0, they introduced the await/async keywords, but don't have a scheduler (yet). This example attempts to 
+implement one:
+- https://github.com/WarriorOfWire/tasko
+
+We'll use that as a reference.
