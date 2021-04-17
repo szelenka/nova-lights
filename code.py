@@ -5,7 +5,17 @@ import adafruit_pcf8523
 import time
 import random
 from collections import OrderedDict, namedtuple
+from enum import Enum
 
+
+class TimeOfDay(Enum):
+    NIGHTTIME = 0
+    HOUR_TRANSITION = 1
+    FRIDAY = 2
+    NORMAL = 3
+
+
+HourPeriod = namedtuple("HourPeriod", ("start", "color", "secondary"))
 
 is_debug = False
 
@@ -45,8 +55,6 @@ RED = (100, 5, 5, 0)
 CYAN = (0, 100, 100, 0)
 MINT = (62, 180, 137, 0)
 
-ColorDuration = namedtuple("ColorDuration", ("color", "duration"))
-HourPeriod = namedtuple("HourPeriod", ("start", "color", "secondary"))
 
 hour_periods = OrderedDict([
     ("morning", HourPeriod(7, BLUE, OFF)),
@@ -62,135 +70,99 @@ hour_periods = OrderedDict([
 
 day_periods = [
     WHITE_RGB,  # Sunday
-    BLUE,   # Monday
-    CYAN,   # Tuesday
+    BLUE,       # Monday
+    CYAN,       # Tuesday
     YELLOW,
     PINK,
     CYAN,
     RED
 ]
 
-class NovaStar(neopixel.NeoPixel):
-    def __init__(self, pin, n, *, fade_duration=0.5, bpp=3, brightness=0.7, auto_write=False, pixel_order=neopixel.GRB):
-        super(NovaStar, self).__init__(pin, n, bpp=bpp, brightness=brightness, auto_write=auto_write, pixel_order=pixel_order)
-        self._bpp = len(pixel_order)
-        self._duration = [1] * n
-        self._last_tick = time.monotonic()
-        self.cycle_index = 0
-        self.cycle_colors = list()
-        self.num_pixels = len(self)
-        self.pause_duration = fade_duration * 2
-        self.cycle_duration = fade_duration / self.num_pixels
-        
-    def turn_off(self):
-        for _ in range(0, self.num_pixels):
-            self[_] = OFF
-        
-        self.show()
-        
-    def count_pixels_colored(self, color):
-        num_on = 0
-        for _ in self:
-            if _[:self._bpp] == color[:self._bpp]:
-                num_on += 1
-                
-        return num_on
-        
-    def cycle_between(self, colors=None, cycle_duration=None, pause_duration=None):
-        cycle_duration = cycle_duration or self.cycle_duration 
-        pause_duration = pause_duration or self.pause_duration
-        colors = colors or self.cycle_colors
-        self.cycle_colors = colors
-        
-        try:
-            decrement_color = colors[self.cycle_index]
-        except IndexError:
-            self.cycle_index = 0
-            decrement_color = colors[0]
-        try:
-            increment_color = colors[self.cycle_index + 1]
-        except IndexError:
-            increment_color = colors[0]
-          
-        num_on = self.count_pixels_colored(increment_color)
-        
-        if num_on < self.num_pixels - 1:
-            new_pixels = [ColorDuration(increment_color, cycle_duration)] * (num_on + 1) + [ColorDuration(decrement_color, cycle_duration)] * (self.num_pixels - num_on - 1)
-        else:
-            new_pixels = [ColorDuration(increment_color, pause_duration)] * self.num_pixels             
-        
-        return self.tick(new_pixels)
-        
-    def tick(self, next_colors):
-        active_colors = set()
-        refresh = False
-        delta = time.monotonic() - self._last_tick
-        current_colors = [_ for _ in self]
-        for i, (pixel, cd) in enumerate(zip(current_colors, next_colors)):
-            self._duration[i] -= delta
-            if self._duration[i] <= 0:
-                # change color & update duration
-                self._duration[i] = cd.duration
-                active_colors.add(cd.color)
-                if pixel != cd.color:
-                    self[i] = cd.color
-                    refresh = True
-                
-        if refresh is True and len(active_colors) == 1:
-            self.cycle_index = (self.cycle_index + 1) % (len(self.cycle_colors) or 1)
-                    
-        if refresh is True:
-            self.show()
-            
-        self._last_tick = time.monotonic() 
-        return
-        
-    def chase(self, primary_color, secondary_color, duration=None, percentage=0.25, randomness=0.5, movement=1, sections=2):
-        duration = duration or self.cycle_duration
-        new_pixels = list()
-        secondary_size = round(self.num_pixels * percentage)
-        secondary_positions = list()
-        for i, _ in enumerate(self):
-            if _[:self._bpp] == secondary_color[:self._bpp]:
-                secondary_positions.append(i)
-        
-        if len(secondary_positions) == 0 or len(secondary_positions) == self.num_pixels:
-            # init sections across neopixels
-            secondary_positions = [range(_, _ + secondary_size - 1) for _ in range(0, self.num_pixels, self.num_pixels // sections)]
-            secondary_positions = [y for x in secondary_positions for y in x]
-            debug(f"init secondary_positions: {secondary_positions}")
-                
-        new_idx = list()
-        if random.uniform(0.0, 1.0) <= randomness:
-            # counter clock-wise
-            new_idx = [(_ + movement) % self.num_pixels for _ in secondary_positions]
-            debug(f"Counter-Clockwise: {new_idx}")
-        else:
-            # clock-wise
-            new_idx = [(_ - movement) % self.num_pixels for _ in secondary_positions]
-            debug(f"Clockwise: {new_idx}")
-            
-        for _ in range(0, self.num_pixels):
-            if _ in new_idx:
-                cd = ColorDuration(secondary_color, duration)
-            else:
-                cd = ColorDuration(primary_color, duration)
-            new_pixels.append(cd)
-            
-        return self.tick(new_pixels)
-        
-    
+timestamp = rtc.datetime
+
+time_of_day = TimeOfDay.NIGHTTIME
 
 lights = OrderedDict([
-    ("top", NovaStar(board.D6, 16)),
-    ("middle", NovaStar(board.D9, 8, pixel_order=neopixel.GRBW)),
-    ("bottom", NovaStar(board.D5, 16))
+    ("top", neopixel.NeoPixel(board.D6, 16)),
+    ("middle", neopixel.NeoPixel(board.D9, 8, pixel_order=neopixel.GRBW)),
+    ("bottom", neopixel.NeoPixel(board.D5, 16))
 ])
 
-# turn off everything
-for light in lights.values():
-    light.turn_off()
+random_color_cycles = random_color_sort()
+
+
+async def get_time():
+    global rtc, timestamp, time_of_day, hour_periods
+    t = rtc.datetime
+    print(f"{t.tm_wday} {t.tm_mon:02}/{t.tm_mday:02}/{t.tm_year} @ {t.tm_hour:02}:{t.tm_min:02}:{t.tm_sec:02}")
+    if t.tm_hour >= hour_periods['sleep'].start and t.tm_hour < hour_periods['morning'].start:
+        time_of_day = TimeOfDay.NIGHTTIME
+        await tasko.sleep(60)
+    elif (
+        t.tm_hour == hour_periods['morning'].start - 1 and t.tm_min >= 59 and t.tm_sec >= 45
+    ) or (
+        t.tm_min >= 59 and t.tm_sec >= 45
+    ):
+        time_of_day = TimeOfDay.HOUR_TRANSITION
+        random_color_cycles = random_color_sort()
+    elif t.tm_wday == 5:
+        time_of_day = TimeOfDay.FRIDAY
+    else:
+        time_of_day = TimeOfDay.NORMAL
+
+    # TODO: move 'prep_hour' logic into here
+    timestamp = t
+
+
+async def turn_off(pixel):
+    pixel.fill(OFF)
+    pixel.show()
+    await tasko.sleep(60)
+
+
+async def cycle_between(pixel, colors=None, cycle_duration=None, pause_duration=None):
+    num_leds = len(pixel)
+    duration = cycle_duration // num_leds
+    for c in colors:
+        for i in range(num_leds):
+            pixel[i] = colors[c]
+            pixel.show()
+            await tasko.sleep(duration)
+
+        await tasko.sleep(pause_duration)
+
+
+async def chase(pixel, primary_color, secondary_color, duration=0.1, percentage=0.25, randomness=0.5, movement=1, sections=2):
+    bpp = None # TODO: discover bpp from pixel
+    num_leds = len(pixel)
+    secondary_size = round(num_leds * percentage)
+    secondary_positions = list()
+    for i, _ in enumerate(pixel):
+        if _[:bpp] == secondary_color[:bpp]:
+            secondary_positions.append(i)
+
+    if len(secondary_positions) == 0 or len(secondary_positions) == num_leds:
+        # init sections across neopixels
+        secondary_positions = [range(_, _ + secondary_size - 1) for _ in range(0, num_leds, num_leds // sections)]
+        secondary_positions = [y for x in secondary_positions for y in x]
+        debug(f"init secondary_positions: {secondary_positions}")
+            
+    new_idx = list()
+    if random.uniform(0.0, 1.0) <= randomness:
+        # counter clock-wise
+        new_idx = [(_ + movement) % num_leds for _ in secondary_positions]
+        debug(f"Counter-Clockwise: {new_idx}")
+    else:
+        # clock-wise
+        new_idx = [(_ - movement) % num_leds for _ in secondary_positions]
+        debug(f"Clockwise: {new_idx}")
     
+    for i in range(num_leds):
+        pixel[i] = secondary_color if _ in new_idx else primary_color
+
+    pixel.show()
+    await tasko.sleep(duration)
+
     
 def random_duration():
     # TODO: find flicker pattern for neopixel
@@ -201,6 +173,8 @@ def random_duration():
 
 
 def prep_hour(hour, minute, second):
+    global timestamp, hour_periods
+    hour, minute, second = timestamp.tm_hour, timestamp.tm_min, timestamp.tm_sec
     values = [_ for _ in hour_periods.values()]
     for _old, _new in zip(values, values[1:]+[values[0]]):
         if _old.start <= hour < _new.start:
@@ -219,59 +193,54 @@ def prep_hour(hour, minute, second):
     return OFF, OFF, 1.0, 1.0 
 
     
-def random_color_sort(neopixels):
+def random_color_sort():
+    global lights
     colors = [RED, ORANGE, YELLOW, GREEN, MINT, BLUE, PURPLE, PINK]
     # the neopixel jewel wants WHITE while the 16 wants WHITE_RBG
     return [
         sorted(colors + [WHITE if _.num_pixels == 8 else WHITE_RGB], key=lambda _: random.random())
-        for _ in neopixels
+        for _ in lights
     ]
     
-    
-random_color_cycles = list()
-previous_second = None
-while True:
-    t = rtc.datetime
-    if t.tm_sec != previous_second:
-        previous_second = t.tm_sec
-        print(f"{t.tm_wday} {t.tm_mon:02}/{t.tm_mday:02}/{t.tm_year} @ {t.tm_hour:02}:{t.tm_min:02}:{t.tm_sec:02}")
-    
-    # execute plan
-    primary, secondary, duration, perc = prep_hour(t.tm_hour, t.tm_min, t.tm_sec)
-    is_it_friday = t.tm_wday == 5
-    is_it_transition = (
-        t.tm_hour == hour_periods['morning'].start - 1 and t.tm_min >= 59 and t.tm_sec >= 45
-    ) or (
-        t.tm_min >= 59 and t.tm_sec >= 45
-    )
-    if is_it_transition or (is_it_friday and len(random_color_cycles) == 0):
-        random_color_cycles = random_color_sort(lights.values())
-    elif not is_it_friday and not is_it_transition:
-        random_color_cycles = list()
-        
-    for i, (k, v) in enumerate(lights.items()):
-        if primary == OFF and secondary == OFF:
-            v.turn_off()
-            continue
-            
-        if is_it_transition:
-            v.cycle_between(
-                colors=random_color_cycles[i], pause_duration=random.uniform(0.1, 0.25), cycle_duration=random.uniform(0.01, 0.07)
-            )
-            continue
-            
-        if is_it_friday or is_it_transition:
-            v.cycle_between(
-                colors=random_color_cycles[i], pause_duration=random.uniform(0.5, 1.5), cycle_duration=random.uniform(0.01, 0.07)
-            )
-            continue
-            
-        if k == "top":
-            v.chase(primary, secondary, duration, perc)
-        elif k == "middle":
-            v.cycle_between(colors=[OFF, WHITE])
-        elif k == "bottom":
-            v.chase(day_periods[t.tm_wday], OFF, random_duration(), 0.25)
-    
-    
 
+
+async def action_plan(idx, pixel):
+    global random_color_cycles, time_of_day, day_periods
+    if time_of_day == TimeOfDay.NIGHTTIME:
+        return turn_off(
+            pixel=pixel
+        )
+    elif time_of_day == TimeOfDay.HOUR_TRANSITION:
+        await cycle_between(
+            pixel=pixel,
+            colors=random_color_cycles[idx],
+            pause_duration=random.uniform(0.1, 0.25), 
+            cycle_duration=random.uniform(0.01, 0.07)
+        )
+    elif time_of_day == TimeOfDay.FRIDAY or time_of_day == TimeOfDay.HOUR_TRANSITION:
+        await cycle_between(
+            pixel=pixel,
+            colors=random_color_cycles[idx], 
+            pause_duration=random.uniform(0.5, 1.5), 
+            cycle_duration=random.uniform(0.01, 0.07)
+        )
+    elif idx == 0:
+        primary, secondary, duration, perc = prep_hour()
+        await chase(pixel, primary, secondary, duration, perc)
+    elif idx == 1:
+        await cycle_between(pixel, colors=[OFF, WHITE])
+    elif idx == 2:
+        await chase(pixel, day_periods[t.tm_wday], OFF, random_duration(), 0.25)
+
+
+# ---------- Tasko wiring begins here ---------- #
+# Schedule the workflows at whatever frequency makes sense
+# get time every second
+tasko.schedule(hz=48,  coroutine_function=get_time)
+
+for i, v in enumerate(lights.values()):
+    tasko.schedule(hz=10,  coroutine_function=action_plan, idx=i, pixel=v)
+
+# And let tasko do while True
+tasko.run()
+# ----------  Tasko wiring ends here  ---------- #
