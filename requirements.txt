@@ -1,2 +1,6 @@
-adafruit_pcf8523
-adafruit_neopixel
+adafruit-circuitpython-register
+adafruit-circuitpython-busdevice
+adafruit-circuitpython-pcf8523
+Adafruit-Blinka
+adafruit-circuitpython-pypixelbuf
+adafruit-circuitpython-neopixel
