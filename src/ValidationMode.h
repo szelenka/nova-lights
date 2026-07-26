@@ -48,8 +48,8 @@ class ValidationMode {
 
   static constexpr uint32_t SCENARIO_DURATION_MS = 10000;
   static constexpr std::array<Scenario, 9> SCENARIOS{{
-      {"normal", "Monday work-period chase and middle pulse", 2026, 7, 27, 10,
-       10, 0},
+      {"normal", "Independent top/bottom twinkles and middle pulse", 2026, 7,
+       27, 10, 10, 0},
       {"quarter", "Quarter-hour accent: 25% lit / 75% dark", 2026, 7, 27, 10,
        15, 1},
       {"blend", "Approaching next hour with 40% next-period color", 2026, 7,
@@ -58,7 +58,7 @@ class ValidationMode {
        59, 46},
       {"friday", "Friday random-color cycle", 2026, 7, 31, 10, 10, 0},
       {"sleep", "Scheduled all-lights-off state", 2026, 7, 27, 22, 0, 0},
-      {"morning", "Morning blue top-light chase", 2026, 7, 27, 7, 0, 0},
+      {"morning", "Morning blue top-light twinkle", 2026, 7, 27, 7, 0, 0},
       {"sunday", "Sunday bottom-light white weekday color", 2026, 7, 26, 10,
        10, 0},
       {"saturday", "Saturday bottom-light red weekday color", 2026, 8, 1, 10,
