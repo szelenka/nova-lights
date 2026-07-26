@@ -17,10 +17,10 @@ to flicker while the smaller light breathes.
 - 16-pixel RGB NeoPixel bottom light
 
 [`include/config.h`](include/config.h) is the source of truth for NeoPixel data
-pins, pixel counts, brightness, and the middle-light pulse period. Update that
-file if the physical wiring or animation timing differs. The QT Py uses 3.3 V
-logic; ensure the NeoPixel power and logic wiring is appropriate for the
-installed pixels.
+pins, pixel counts, brightness, middle-light pulse period, and top/bottom
+twinkle timing. Update that file if the physical wiring or animation timing
+differs. The QT Py uses 3.3 V logic; ensure the NeoPixel power and logic wiring
+is appropriate for the installed pixels.
 
 ## Color and schedule configuration
 
@@ -55,6 +55,26 @@ The middle RGBW light uses the deterministic eased pulse period configured by
 `MIDDLE_PULSE_PERIOD_MS` in `include/config.h`: half of each period fades from
 dark to full white and the other half fades back to dark. It has no pause or
 queued catch-up transitions.
+
+During normal operation, the top and bottom rings independently fade up to
+three non-adjacent pixels fully off, hold briefly, and return to their base
+colors. Twinkles use randomized durations, depths, and gaps from
+`include/config.h`, but randomness is sampled only when an event timer expires.
+Quarter-hour accents, scheduled color blending, Friday colors, and hourly
+rainbow transitions retain their dedicated animations.
+
+Twinkle tuning:
+
+- `TWINKLE_GAP_MIN_MS` and `TWINKLE_GAP_MAX_MS` control the randomized delay
+  between the start of new twinkle events. Smaller values create a busier ring.
+- `TWINKLE_DURATION_MIN_MS` and `TWINKLE_DURATION_MAX_MS` control each
+  twinkle's complete fade-out, dark hold, and fade-in duration.
+- `TWINKLE_DEPTH_MIN` and `TWINKLE_DEPTH_MAX` control how far pixels dim; `255`
+  reaches fully off.
+- `TWINKLE_MAX_ACTIVE` limits how many non-adjacent pixels may twinkle at once.
+
+Event gaps control when new twinkles start, so multiple twinkles can overlap.
+Set a minimum and maximum to the same value when a fixed interval is desired.
 
 Run the host-side animation tests without connecting hardware:
 
