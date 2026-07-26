@@ -125,6 +125,16 @@ void test_animation_mode_prioritizes_off_transition_and_friday() {
       static_cast<int>(animationMode(handoff, false, 59, 55)));
 }
 
+void test_top_twinkles_except_during_accents_and_color_blends() {
+  const AnimationPlan normal = prepareHour(10, 10, 0);
+  const AnimationPlan quarter = prepareHour(10, 15, 1);
+  const AnimationPlan blend = prepareHour(10, 57, 0);
+
+  TEST_ASSERT_FALSE(usesTopChase(normal, 10, 0));
+  TEST_ASSERT_TRUE(usesTopChase(quarter, 15, 1));
+  TEST_ASSERT_TRUE(usesTopChase(blend, 57, 0));
+}
+
 void test_invalid_chase_configuration_preserves_current_frame() {
   std::array<Color, MAX_PIXELS> current{};
   current.fill(RED);
@@ -180,6 +190,7 @@ int main(int, char**) {
   RUN_TEST(test_hour_schedule_selects_normal_quarter_and_blended_periods);
   RUN_TEST(test_quarter_hour_uses_75_percent_total_ring_coverage);
   RUN_TEST(test_animation_mode_prioritizes_off_transition_and_friday);
+  RUN_TEST(test_top_twinkles_except_during_accents_and_color_blends);
   RUN_TEST(test_invalid_chase_configuration_preserves_current_frame);
   RUN_TEST(test_ring_color_transitions_are_distributed_not_adjacent);
   return UNITY_END();
