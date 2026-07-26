@@ -142,4 +142,3 @@ class AnimationState {
 };
 
 }  // namespace nova
-

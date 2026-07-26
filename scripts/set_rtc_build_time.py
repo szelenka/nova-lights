@@ -13,4 +13,3 @@ env.Append(
         ("NOVA_RTC_SECOND", now.second),
     ]
 )
-
