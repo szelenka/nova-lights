@@ -59,21 +59,30 @@ void test_bottom_chase_uses_the_requested_weekday_color() {
   }
 }
 
+void test_weekday_color_mapping_is_sunday_first() {
+  constexpr std::array<Color, 7> expected{
+      WHITE_RGB, BLUE, CYAN, YELLOW, PINK, CYAN, RED,
+  };
+  for (size_t weekday = 0; weekday < expected.size(); ++weekday) {
+    TEST_ASSERT_EQUAL_UINT32(expected[weekday], DAY_COLORS[weekday]);
+  }
+}
+
 void test_hour_schedule_selects_normal_quarter_and_blended_periods() {
-  const AnimationPlan normal = prepareHour(10, 10, 0, 200);
+  const AnimationPlan normal = prepareHour(10, 10, 0);
   TEST_ASSERT_EQUAL_UINT32(MINT, normal.primary);
   TEST_ASSERT_EQUAL_UINT32(OFF, normal.secondary);
   TEST_ASSERT_FLOAT_WITHIN(0.001F, 0.25F, normal.percentage);
 
-  const AnimationPlan quarter = prepareHour(10, 15, 1, 200);
+  const AnimationPlan quarter = prepareHour(10, 15, 1);
   TEST_ASSERT_FLOAT_WITHIN(0.001F, 0.75F, quarter.percentage);
 
-  const AnimationPlan blend = prepareHour(10, 57, 0, 200);
+  const AnimationPlan blend = prepareHour(10, 57, 0);
   TEST_ASSERT_EQUAL_UINT32(MINT, blend.primary);
   TEST_ASSERT_EQUAL_UINT32(PINK, blend.secondary);
   TEST_ASSERT_FLOAT_WITHIN(0.001F, 0.4F, blend.percentage);
 
-  const AnimationPlan handoff = prepareHour(10, 59, 55, 200);
+  const AnimationPlan handoff = prepareHour(10, 59, 55);
   TEST_ASSERT_EQUAL_UINT32(PINK, handoff.primary);
   TEST_ASSERT_EQUAL_UINT32(MINT, handoff.secondary);
   TEST_ASSERT_EQUAL_UINT32(10, handoff.durationMs);
@@ -109,6 +118,25 @@ void test_animation_mode_prioritizes_off_transition_and_friday() {
                         static_cast<int>(animationMode(normal, true, 30, 0)));
   TEST_ASSERT_EQUAL_INT(static_cast<int>(AnimationMode::Normal),
                         static_cast<int>(animationMode(normal, false, 30, 0)));
+
+  const AnimationPlan handoff = prepareHour(10, 59, 55);
+  TEST_ASSERT_EQUAL_INT(
+      static_cast<int>(AnimationMode::Transition),
+      static_cast<int>(animationMode(handoff, false, 59, 55)));
+}
+
+void test_invalid_chase_configuration_preserves_current_frame() {
+  std::array<Color, MAX_PIXELS> current{};
+  current.fill(RED);
+
+  TEST_ASSERT_EQUAL_MEMORY(
+      current.data(),
+      makeChaseFrame(current, MAX_PIXELS + 1, BLUE, OFF, 0.25F, 1).data(),
+      sizeof(current));
+  TEST_ASSERT_EQUAL_MEMORY(
+      current.data(),
+      makeChaseFrame(current, 16, BLUE, OFF, 0.25F, 1, 1, 0).data(),
+      sizeof(current));
 }
 
 void assertDistributedOrder(uint16_t pixelCount, uint8_t rotation,
@@ -148,9 +176,11 @@ int main(int, char**) {
   RUN_TEST(test_top_chase_initializes_two_evenly_spaced_sections);
   RUN_TEST(test_top_chase_moves_both_directions_and_wraps);
   RUN_TEST(test_bottom_chase_uses_the_requested_weekday_color);
+  RUN_TEST(test_weekday_color_mapping_is_sunday_first);
   RUN_TEST(test_hour_schedule_selects_normal_quarter_and_blended_periods);
   RUN_TEST(test_quarter_hour_uses_75_percent_total_ring_coverage);
   RUN_TEST(test_animation_mode_prioritizes_off_transition_and_friday);
+  RUN_TEST(test_invalid_chase_configuration_preserves_current_frame);
   RUN_TEST(test_ring_color_transitions_are_distributed_not_adjacent);
   return UNITY_END();
 }
