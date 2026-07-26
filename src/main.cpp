@@ -9,6 +9,7 @@
 #include <AnimationLogic.h>
 #include <AnimationState.h>
 #include <PulseAnimation.h>
+#include <TwinkleAnimation.h>
 
 #include "config.h"
 #include "ValidationMode.h"
@@ -30,6 +31,7 @@ using nova::ORANGE;
 using nova::PINK;
 using nova::PURPLE;
 using nova::RED;
+using nova::TwinkleAnimation;
 using nova::WHITE;
 using nova::WHITE_RGB;
 using nova::YELLOW;
@@ -37,6 +39,7 @@ using nova::animationMode;
 using nova::makeChaseFrame;
 using nova::prepareHour;
 using nova::rgbw;
+using nova::usesTopChase;
 
 constexpr size_t RANDOM_COLOR_COUNT = 9;
 
@@ -62,6 +65,7 @@ class NovaStar {
       : pixels_(pixelCount, pin, type),
         pixelCount_(pixelCount),
         state_(pixelCount),
+        twinkle_(pixelCount, TWINKLE_MAX_ACTIVE),
         pauseDurationMs_(secondsToMs(fadeDuration * 2.0F)),
         cycleDurationMs_(secondsToMs(fadeDuration / pixelCount)) {}
 
@@ -72,20 +76,22 @@ class NovaStar {
   }
 
   void reset() {
-    state_.reset(millis());
+    const uint32_t nowMs = millis();
+    state_.reset(nowMs);
+    twinkle_.reset(nowMs);
+    activeEffect_ = Effect::None;
     pixels_.clear();
     pixels_.show();
   }
 
   void turnOff() {
-    if (!state_.isOff()) {
+    if (!state_.isOff() || activeEffect_ != Effect::None) {
       reset();
     }
   }
 
   void setSolid(Color color) {
-    state_.makeImmediate(millis());
-    state_.resetCycle();
+    activate(Effect::Solid, millis());
     if (state_.setSolid(color)) {
       render();
     }
@@ -101,6 +107,7 @@ class NovaStar {
     }
 
     const uint32_t nowMs = millis();
+    activate(Effect::Cycle, nowMs);
     if (!state_.ready(nowMs)) {
       return;
     }
@@ -131,6 +138,7 @@ class NovaStar {
              float percentage = 0.25F, float randomness = 0.5F,
              int movement = 1, uint8_t sections = 2) {
     const uint32_t nowMs = millis();
+    activate(Effect::Chase, nowMs);
     if (!state_.ready(nowMs)) {
       return;
     }
@@ -149,7 +157,45 @@ class NovaStar {
     }
   }
 
+  void twinkle(Color base, Color twinkleColor = OFF) {
+    const uint32_t nowMs = millis();
+    activate(Effect::Twinkle, nowMs);
+    if (twinkle_.advance(nowMs)) {
+      twinkle_.startEvent(
+          random(0L, static_cast<long>(pixelCount_)),
+          randomMilliseconds(TWINKLE_DURATION_MIN_MS,
+                             TWINKLE_DURATION_MAX_MS),
+          static_cast<uint8_t>(
+              randomMilliseconds(TWINKLE_DEPTH_MIN, TWINKLE_DEPTH_MAX)),
+          randomMilliseconds(TWINKLE_GAP_MIN_MS, TWINKLE_GAP_MAX_MS));
+    }
+
+    if (state_.replaceFrame(twinkle_.frame(base, twinkleColor))) {
+      render();
+    }
+  }
+
  private:
+  enum class Effect {
+    None,
+    Solid,
+    Cycle,
+    Chase,
+    Twinkle,
+  };
+
+  void activate(Effect effect, uint32_t nowMs) {
+    if (activeEffect_ == effect) {
+      return;
+    }
+    state_.makeImmediate(nowMs);
+    state_.resetCycle();
+    if (effect == Effect::Twinkle) {
+      twinkle_.reset(nowMs);
+    }
+    activeEffect_ = effect;
+  }
+
   uint32_t randomMilliseconds(uint32_t minimum, uint32_t maximum) {
     if (maximum <= minimum) {
       return minimum;
@@ -169,8 +215,10 @@ class NovaStar {
   Adafruit_NeoPixel pixels_;
   uint16_t pixelCount_;
   AnimationState state_;
+  TwinkleAnimation twinkle_;
   uint32_t pauseDurationMs_;
   uint32_t cycleDurationMs_;
+  Effect activeEffect_ = Effect::None;
 };
 
 void shuffleColors(std::array<Color, RANDOM_COLOR_COUNT>& colors) {
@@ -326,8 +374,12 @@ void loop() {
     return;
   }
 
-  topLight.chase(plan.primary, plan.secondary, plan.durationMs,
-                 plan.percentage);
+  if (usesTopChase(plan, now.minute(), now.second())) {
+    topLight.chase(plan.primary, plan.secondary, plan.durationMs,
+                   plan.percentage);
+  } else {
+    topLight.twinkle(plan.primary);
+  }
   middleLight.setSolid(rgbw(0, 0, 0, middlePulse.levelAt(millis())));
-  bottomLight.chase(DAY_COLORS[now.dayOfTheWeek()], OFF, 0, 0.25F);
+  bottomLight.twinkle(DAY_COLORS[now.dayOfTheWeek()]);
 }

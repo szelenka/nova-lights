@@ -117,6 +117,13 @@ inline AnimationMode animationMode(const AnimationPlan& plan, bool isFriday,
   return isFriday ? AnimationMode::Friday : AnimationMode::Normal;
 }
 
+inline bool usesTopChase(const AnimationPlan& plan, uint8_t minute,
+                         uint8_t second) {
+  const bool isQuarterAccent =
+      (minute == 15 || minute == 30 || minute == 45) && second < 3;
+  return isQuarterAccent || plan.secondary != OFF;
+}
+
 inline std::array<Color, MAX_PIXELS> makeChaseFrame(
     const std::array<Color, MAX_PIXELS>& currentColors, uint16_t pixelCount,
     Color primary, Color secondary, float percentage, int direction,
