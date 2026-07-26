@@ -5,7 +5,8 @@
 
 class PulseAnimation {
  public:
-  explicit PulseAnimation(uint32_t periodMs) : periodMs_(periodMs) {}
+  explicit PulseAnimation(uint32_t periodMs)
+      : periodMs_(periodMs == 0 ? 1 : periodMs) {}
 
   void reset(uint32_t nowMs) {
     phaseMs_ = 0;

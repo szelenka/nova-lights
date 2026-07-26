@@ -71,8 +71,7 @@ struct AnimationPlan {
   float percentage;
 };
 
-inline AnimationPlan prepareHour(uint8_t hour, uint8_t minute, uint8_t second,
-                                 uint32_t randomDurationMs) {
+inline AnimationPlan prepareHour(uint8_t hour, uint8_t minute, uint8_t second) {
   for (size_t index = 0; index < HOUR_PERIODS.size(); ++index) {
     const HourPeriod& current = HOUR_PERIODS[index];
     const HourPeriod& next = HOUR_PERIODS[(index + 1) % HOUR_PERIODS.size()];
@@ -85,18 +84,17 @@ inline AnimationPlan prepareHour(uint8_t hour, uint8_t minute, uint8_t second,
     }
 
     if ((minute == 15 || minute == 30 || minute == 45) && second < 3) {
-      return {current.color, current.secondary, randomDurationMs, 0.75F};
+      return {current.color, current.secondary, 0, 0.75F};
     }
     if (hour == static_cast<uint8_t>((next.start + 23) % 24)) {
       if (minute == 59 && second >= 50) {
         return {next.color, current.color, 10, 0.5F};
       }
       if (minute >= 55) {
-        return {current.color, next.color, randomDurationMs,
-                (minute - 55) / 5.0F};
+        return {current.color, next.color, 0, (minute - 55) / 5.0F};
       }
     }
-    return {current.color, current.secondary, randomDurationMs, 0.25F};
+    return {current.color, current.secondary, 0, 0.25F};
   }
   return {OFF, OFF, 1000, 1.0F};
 }
@@ -123,6 +121,13 @@ inline std::array<Color, MAX_PIXELS> makeChaseFrame(
     const std::array<Color, MAX_PIXELS>& currentColors, uint16_t pixelCount,
     Color primary, Color secondary, float percentage, int direction,
     int movement = 1, uint8_t sections = 2) {
+  if (pixelCount == 0 || pixelCount > MAX_PIXELS || sections == 0) {
+    return currentColors;
+  }
+  percentage = percentage < 0.0F ? 0.0F
+                                 : (percentage > 1.0F ? 1.0F : percentage);
+  sections = sections > pixelCount ? pixelCount : sections;
+
   std::array<bool, MAX_PIXELS> secondaryPositions{};
   uint16_t secondaryCount = 0;
   for (uint16_t index = 0; index < pixelCount; ++index) {
@@ -154,8 +159,9 @@ inline std::array<Color, MAX_PIXELS> makeChaseFrame(
   const int signedMovement = direction >= 0 ? movement : -movement;
   for (uint16_t index = 0; index < pixelCount; ++index) {
     if (secondaryPositions[index]) {
+      const int rawMoved = static_cast<int>(index) + signedMovement;
       const int moved =
-          (static_cast<int>(index) + signedMovement + pixelCount) % pixelCount;
+          ((rawMoved % pixelCount) + pixelCount) % pixelCount;
       frame[moved] = secondary;
     }
   }
@@ -165,6 +171,20 @@ inline std::array<Color, MAX_PIXELS> makeChaseFrame(
 inline std::array<uint8_t, MAX_PIXELS> makeDistributedOrder(
     uint16_t pixelCount, uint8_t rotation = 0, bool reverse = false) {
   std::array<uint8_t, MAX_PIXELS> order{};
+  if (pixelCount == 0 || pixelCount > MAX_PIXELS) {
+    return order;
+  }
+  rotation %= pixelCount;
+  if (pixelCount != 8 && pixelCount != 16) {
+    for (uint16_t index = 0; index < pixelCount; ++index) {
+      const int offset =
+          reverse ? -static_cast<int>(index) : static_cast<int>(index);
+      order[index] =
+          (static_cast<int>(rotation) + offset + pixelCount) % pixelCount;
+    }
+    return order;
+  }
+
   uint8_t bitCount = 0;
   for (uint16_t value = pixelCount; value > 1; value >>= 1) {
     ++bitCount;

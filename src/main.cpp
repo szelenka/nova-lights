@@ -7,6 +7,7 @@
 #include <array>
 
 #include <AnimationLogic.h>
+#include <AnimationState.h>
 #include <PulseAnimation.h>
 
 #include "config.h"
@@ -14,12 +15,28 @@
 
 namespace {
 
-using namespace nova;
-
-struct ColorDuration {
-  Color color;
-  uint32_t durationMs;
-};
+using nova::AnimationMode;
+using nova::AnimationPlan;
+using nova::AnimationState;
+using nova::BLUE;
+using nova::Color;
+using nova::CYAN;
+using nova::DAY_COLORS;
+using nova::GREEN;
+using nova::MAX_PIXELS;
+using nova::MINT;
+using nova::OFF;
+using nova::ORANGE;
+using nova::PINK;
+using nova::PURPLE;
+using nova::RED;
+using nova::WHITE;
+using nova::WHITE_RGB;
+using nova::YELLOW;
+using nova::animationMode;
+using nova::makeChaseFrame;
+using nova::prepareHour;
+using nova::rgbw;
 
 constexpr size_t RANDOM_COLOR_COUNT = 9;
 
@@ -44,172 +61,114 @@ class NovaStar {
            float fadeDuration = 0.5F)
       : pixels_(pixelCount, pin, type),
         pixelCount_(pixelCount),
+        state_(pixelCount),
         pauseDurationMs_(secondsToMs(fadeDuration * 2.0F)),
-        cycleDurationMs_(secondsToMs(fadeDuration / pixelCount)) {
-    durationsMs_.fill(1);
-  }
+        cycleDurationMs_(secondsToMs(fadeDuration / pixelCount)) {}
 
   void begin() {
     pixels_.begin();
     pixels_.setBrightness(LIGHT_BRIGHTNESS);
-    turnOff();
-    lastTickMs_ = millis();
+    reset();
   }
 
-  void turnOff() {
-    currentColors_.fill(OFF);
-    durationsMs_.fill(0);
-    lastTickMs_ = millis();
-    cycleIndex_ = 0;
-    cycleColorCount_ = 0;
-    transitionOrderReady_ = false;
+  void reset() {
+    state_.reset(millis());
     pixels_.clear();
     pixels_.show();
   }
 
-  void setSolid(Color color) {
-    bool refresh = false;
-    for (uint16_t index = 0; index < pixelCount_; ++index) {
-      if (currentColors_[index] != color) {
-        currentColors_[index] = color;
-        pixels_.setPixelColor(index, color);
-        refresh = true;
-      }
+  void turnOff() {
+    if (!state_.isOff()) {
+      reset();
     }
-    if (refresh) {
-      pixels_.show();
+  }
+
+  void setSolid(Color color) {
+    state_.makeImmediate(millis());
+    state_.resetCycle();
+    if (state_.setSolid(color)) {
+      render();
     }
   }
 
   void cycleBetween(const Color* colors, size_t colorCount,
-                    uint32_t cycleDurationMs = 0,
-                    uint32_t pauseDurationMs = 0) {
+                    uint32_t cycleDurationMinMs = 0,
+                    uint32_t cycleDurationMaxMs = 0,
+                    uint32_t pauseDurationMinMs = 0,
+                    uint32_t pauseDurationMaxMs = 0) {
     if (colorCount == 0) {
       return;
     }
 
-    cycleColorCount_ = colorCount;
-    cycleDurationMs =
-        cycleDurationMs == 0 ? cycleDurationMs_ : cycleDurationMs;
-    pauseDurationMs =
-        pauseDurationMs == 0 ? pauseDurationMs_ : pauseDurationMs;
-
-    if (cycleIndex_ >= colorCount) {
-      cycleIndex_ = 0;
+    const uint32_t nowMs = millis();
+    if (!state_.ready(nowMs)) {
+      return;
     }
-    const Color decrementColor = colors[cycleIndex_];
-    const Color incrementColor = colors[(cycleIndex_ + 1) % colorCount];
-    prepareTransitionOrder(decrementColor, incrementColor);
-    const uint16_t colored = countPixelsColored(incrementColor);
 
-    std::array<ColorDuration, MAX_PIXELS> next{};
-    if (colored < pixelCount_ - 1) {
-      for (uint16_t index = 0; index < pixelCount_; ++index) {
-        next[index] = {decrementColor, cycleDurationMs};
-      }
-      for (uint16_t step = 0; step <= colored; ++step) {
-        next[transitionOrder_[step]] = {incrementColor, cycleDurationMs};
-      }
-    } else {
-      for (uint16_t index = 0; index < pixelCount_; ++index) {
-        next[index] = {incrementColor, pauseDurationMs};
-      }
+    cycleDurationMinMs =
+        cycleDurationMinMs == 0 ? cycleDurationMs_ : cycleDurationMinMs;
+    cycleDurationMaxMs = cycleDurationMaxMs == 0 ? cycleDurationMinMs
+                                                 : cycleDurationMaxMs;
+    pauseDurationMinMs =
+        pauseDurationMinMs == 0 ? pauseDurationMs_ : pauseDurationMinMs;
+    pauseDurationMaxMs =
+        pauseDurationMaxMs == 0 ? pauseDurationMinMs : pauseDurationMaxMs;
+
+    const nova::CycleStep step = state_.advanceCycle(
+        colors, colorCount, random(0L, static_cast<long>(pixelCount_)),
+        random(0L, 2L) == 1);
+    state_.schedule(step.completedTarget
+                        ? randomMilliseconds(pauseDurationMinMs,
+                                             pauseDurationMaxMs)
+                        : randomMilliseconds(cycleDurationMinMs,
+                                             cycleDurationMaxMs));
+    if (step.changed) {
+      render();
     }
-    tick(next);
   }
 
   void chase(Color primary, Color secondary, uint32_t durationMs = 0,
              float percentage = 0.25F, float randomness = 0.5F,
              int movement = 1, uint8_t sections = 2) {
-    durationMs = durationMs == 0 ? cycleDurationMs_ : durationMs;
-    const int direction =
-        randomFloat(0.0F, 1.0F) <= randomness ? movement : -movement;
-    const auto frame =
-        makeChaseFrame(currentColors_, pixelCount_, primary, secondary,
-                       percentage, direction, movement, sections);
-
-    std::array<ColorDuration, MAX_PIXELS> next{};
-    for (uint16_t index = 0; index < pixelCount_; ++index) {
-      next[index] = {frame[index], durationMs};
-    }
-    tick(next);
-  }
-
-  uint16_t pixelCount() const { return pixelCount_; }
-
- private:
-  void prepareTransitionOrder(Color decrementColor, Color incrementColor) {
-    if (transitionOrderReady_ && decrementColor == transitionFrom_ &&
-        incrementColor == transitionTo_) {
+    const uint32_t nowMs = millis();
+    if (!state_.ready(nowMs)) {
       return;
     }
 
-    transitionFrom_ = decrementColor;
-    transitionTo_ = incrementColor;
-    transitionOrder_ = makeDistributedOrder(
-        pixelCount_, random(0L, static_cast<long>(pixelCount_)),
-        random(0L, 2L) == 1);
-    transitionOrderReady_ = true;
+    durationMs =
+        durationMs == 0 ? secondsToMs(randomDuration()) : durationMs;
+    const int direction =
+        randomFloat(0.0F, 1.0F) <= randomness ? movement : -movement;
+    const auto frame =
+        makeChaseFrame(state_.colors(), pixelCount_, primary, secondary,
+                       percentage, direction, movement, sections);
+    state_.resetCycle();
+    state_.schedule(durationMs);
+    if (state_.replaceFrame(frame)) {
+      render();
+    }
   }
 
-  uint16_t countPixelsColored(Color color) const {
-    uint16_t count = 0;
-    for (uint16_t index = 0; index < pixelCount_; ++index) {
-      if (currentColors_[index] == color) {
-        ++count;
-      }
+ private:
+  uint32_t randomMilliseconds(uint32_t minimum, uint32_t maximum) {
+    if (maximum <= minimum) {
+      return minimum;
     }
-    return count;
+    return static_cast<uint32_t>(
+        random(static_cast<long>(minimum), static_cast<long>(maximum + 1)));
   }
 
-  void tick(const std::array<ColorDuration, MAX_PIXELS>& next) {
-    const uint32_t now = millis();
-    const uint32_t elapsed = now - lastTickMs_;
-    bool refresh = false;
-    bool multipleActiveColors = false;
-    Color activeColor = OFF;
-    bool hasActiveColor = false;
-
+  void render() {
+    const auto& colors = state_.colors();
     for (uint16_t index = 0; index < pixelCount_; ++index) {
-      if (elapsed >= durationsMs_[index]) {
-        durationsMs_[index] = next[index].durationMs;
-        if (!hasActiveColor) {
-          activeColor = next[index].color;
-          hasActiveColor = true;
-        } else if (activeColor != next[index].color) {
-          multipleActiveColors = true;
-        }
-
-        if (currentColors_[index] != next[index].color) {
-          currentColors_[index] = next[index].color;
-          pixels_.setPixelColor(index, next[index].color);
-          refresh = true;
-        }
-      } else {
-        durationsMs_[index] -= elapsed;
-      }
+      pixels_.setPixelColor(index, colors[index]);
     }
-
-    if (refresh && !multipleActiveColors && cycleColorCount_ > 0) {
-      cycleIndex_ = (cycleIndex_ + 1) % cycleColorCount_;
-    }
-    if (refresh) {
-      pixels_.show();
-    }
-    lastTickMs_ = now;
+    pixels_.show();
   }
 
   Adafruit_NeoPixel pixels_;
   uint16_t pixelCount_;
-  std::array<Color, MAX_PIXELS> currentColors_{};
-  std::array<uint32_t, MAX_PIXELS> durationsMs_{};
-  uint32_t lastTickMs_ = 0;
-  size_t cycleIndex_ = 0;
-  size_t cycleColorCount_ = 0;
-  std::array<uint8_t, MAX_PIXELS> transitionOrder_{};
-  Color transitionFrom_ = OFF;
-  Color transitionTo_ = OFF;
-  bool transitionOrderReady_ = false;
+  AnimationState state_;
   uint32_t pauseDurationMs_;
   uint32_t cycleDurationMs_;
 };
@@ -259,6 +218,18 @@ void printTime(const DateTime& now) {
   Serial.println(now.toString(timestamp));
 }
 
+#ifndef NOVA_VALIDATION_MODE
+[[noreturn]] void haltForRtcError(const char* message) {
+  topLight.turnOff();
+  middleLight.turnOff();
+  bottomLight.turnOff();
+  while (true) {
+    Serial.println(message);
+    delay(5000);
+  }
+}
+#endif
+
 }  // namespace
 
 void setup() {
@@ -275,18 +246,18 @@ void setup() {
   validation.begin(millis());
 #else
   if (!rtc.begin()) {
-    Serial.println("PCF8523 not found on the STEMMA QT I2C bus.");
-    while (true) {
-      delay(1000);
-    }
+    haltForRtcError("PCF8523 not found on the STEMMA QT I2C bus.");
   }
-  if (SET_RTC_TO_BUILD_TIME) {
-    rtc.adjust(DateTime(F(__DATE__), F(__TIME__)));
-    Serial.println("PCF8523 set from the firmware build timestamp.");
-  } else if (!rtc.initialized() || rtc.lostPower()) {
-    Serial.println(
-        "PCF8523 time is not set. Enable SET_RTC_TO_BUILD_TIME for one upload.");
+#ifdef NOVA_SET_RTC_TO_BUILD_TIME
+  rtc.adjust(DateTime(NOVA_RTC_YEAR, NOVA_RTC_MONTH, NOVA_RTC_DAY,
+                      NOVA_RTC_HOUR, NOVA_RTC_MINUTE, NOVA_RTC_SECOND));
+  Serial.println("PCF8523 set from the computer's local build time.");
+#else
+  if (!rtc.initialized() || rtc.lostPower()) {
+    haltForRtcError(
+        "PCF8523 time is invalid. Upload the set_rtc environment.");
   }
+#endif
 #endif
 }
 
@@ -297,9 +268,9 @@ void loop() {
   if (validation.selected() != previousValidationScenario) {
     previousValidationScenario = validation.selected();
     randomCyclesReady = false;
-    topLight.turnOff();
-    middleLight.turnOff();
-    bottomLight.turnOff();
+    topLight.reset();
+    middleLight.reset();
+    bottomLight.reset();
     middlePulse.reset(millis());
   }
   const DateTime now = validation.now();
@@ -312,8 +283,7 @@ void loop() {
   }
 
   const AnimationPlan plan =
-      prepareHour(now.hour(), now.minute(), now.second(),
-                  secondsToMs(randomDuration()));
+      prepareHour(now.hour(), now.minute(), now.second());
   const bool isFriday = now.dayOfTheWeek() == 5;
   const AnimationMode mode =
       animationMode(plan, isFriday, now.minute(), now.second());
@@ -334,39 +304,30 @@ void loop() {
 
   if (mode == AnimationMode::Transition) {
     topLight.cycleBetween(
-        topRandomColors.data(), topRandomColors.size(),
-        secondsToMs(randomFloat(0.01F, 0.07F)),
-        secondsToMs(randomFloat(0.1F, 0.25F)));
+        topRandomColors.data(), topRandomColors.size(), 10, 70, 100, 250);
     middleLight.cycleBetween(
-        middleRandomColors.data(), middleRandomColors.size(),
-        secondsToMs(randomFloat(0.01F, 0.07F)),
-        secondsToMs(randomFloat(0.1F, 0.25F)));
+        middleRandomColors.data(), middleRandomColors.size(), 10, 70, 100,
+        250);
     bottomLight.cycleBetween(
-        bottomRandomColors.data(), bottomRandomColors.size(),
-        secondsToMs(randomFloat(0.01F, 0.07F)),
-        secondsToMs(randomFloat(0.1F, 0.25F)));
+        bottomRandomColors.data(), bottomRandomColors.size(), 10, 70, 100,
+        250);
     return;
   }
 
   if (mode == AnimationMode::Friday) {
     topLight.cycleBetween(
-        topRandomColors.data(), topRandomColors.size(),
-        secondsToMs(randomFloat(0.01F, 0.07F)),
-        secondsToMs(randomFloat(0.5F, 1.5F)));
+        topRandomColors.data(), topRandomColors.size(), 10, 70, 500, 1500);
     middleLight.cycleBetween(
-        middleRandomColors.data(), middleRandomColors.size(),
-        secondsToMs(randomFloat(0.01F, 0.07F)),
-        secondsToMs(randomFloat(0.5F, 1.5F)));
+        middleRandomColors.data(), middleRandomColors.size(), 10, 70, 500,
+        1500);
     bottomLight.cycleBetween(
-        bottomRandomColors.data(), bottomRandomColors.size(),
-        secondsToMs(randomFloat(0.01F, 0.07F)),
-        secondsToMs(randomFloat(0.5F, 1.5F)));
+        bottomRandomColors.data(), bottomRandomColors.size(), 10, 70, 500,
+        1500);
     return;
   }
 
   topLight.chase(plan.primary, plan.secondary, plan.durationMs,
                  plan.percentage);
   middleLight.setSolid(rgbw(0, 0, 0, middlePulse.levelAt(millis())));
-  bottomLight.chase(DAY_COLORS[now.dayOfTheWeek()], OFF,
-                    secondsToMs(randomDuration()), 0.25F);
+  bottomLight.chase(DAY_COLORS[now.dayOfTheWeek()], OFF, 0, 0.25F);
 }
