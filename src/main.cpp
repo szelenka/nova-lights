@@ -1,4 +1,5 @@
 #include <Adafruit_NeoPixel.h>
+#include <Adafruit_SleepyDog.h>
 #include <Arduino.h>
 #include <RTClib.h>
 #include <Wire.h>
@@ -8,6 +9,8 @@
 
 #include <AnimationLogic.h>
 #include <AnimationState.h>
+#include <ClockGuard.h>
+#include <IntervalTimer.h>
 #include <PulseAnimation.h>
 #include <TwinkleAnimation.h>
 
@@ -21,9 +24,11 @@ using nova::AnimationPlan;
 using nova::AnimationState;
 using nova::BLUE;
 using nova::Color;
+using nova::ClockGuard;
 using nova::CYAN;
 using nova::DAY_COLORS;
 using nova::GREEN;
+using nova::IntervalTimer;
 using nova::MAX_PIXELS;
 using nova::MINT;
 using nova::OFF;
@@ -238,6 +243,12 @@ std::array<Color, RANDOM_COLOR_COUNT> makeRandomColors(bool isRgbw) {
 }
 
 RTC_PCF8523 rtc;
+#ifndef NOVA_VALIDATION_MODE
+DateTime cachedTime;
+IntervalTimer rtcRefresh(RTC_REFRESH_PERIOD_MS);
+ClockGuard rtcClockGuard(RTC_SAMPLE_TOLERANCE_SECONDS);
+bool rtcSampleWarningActive = false;
+#endif
 #ifdef NOVA_VALIDATION_MODE
 ValidationMode validation;
 #endif
@@ -267,7 +278,33 @@ void printTime(const DateTime& now) {
 }
 
 #ifndef NOVA_VALIDATION_MODE
+bool initializeCachedTime() {
+  DateTime previous;
+  bool hasPrevious = false;
+  for (uint8_t attempt = 0; attempt < 5; ++attempt) {
+    Watchdog.reset();
+    const DateTime candidate = rtc.now();
+    if (candidate.isValid()) {
+      if (hasPrevious) {
+        const uint32_t previousTimestamp = previous.unixtime();
+        const uint32_t candidateTimestamp = candidate.unixtime();
+        if (candidateTimestamp >= previousTimestamp &&
+            candidateTimestamp - previousTimestamp <= 1) {
+          cachedTime = candidate;
+          rtcClockGuard.reset(candidateTimestamp, millis());
+          return true;
+        }
+      }
+      previous = candidate;
+      hasPrevious = true;
+    }
+    delay(10);
+  }
+  return false;
+}
+
 [[noreturn]] void haltForRtcError(const char* message) {
+  Watchdog.disable();
   topLight.turnOff();
   middleLight.turnOff();
   bottomLight.turnOff();
@@ -289,6 +326,7 @@ void setup() {
   middleLight.begin();
   bottomLight.begin();
   middlePulse.reset(millis());
+  Watchdog.enable(WATCHDOG_TIMEOUT_MS);
 
 #ifdef NOVA_VALIDATION_MODE
   validation.begin(millis());
@@ -306,24 +344,43 @@ void setup() {
         "PCF8523 time is invalid. Upload the set_rtc environment.");
   }
 #endif
+  if (!initializeCachedTime()) {
+    haltForRtcError("PCF8523 returned inconsistent time samples.");
+  }
+  rtcRefresh.reset(millis());
 #endif
 }
 
 void loop() {
+  Watchdog.reset();
+  const uint32_t nowMs = millis();
 #ifdef NOVA_VALIDATION_MODE
   static size_t previousValidationScenario = validation.selected();
-  validation.update(millis());
+  validation.update(nowMs);
   if (validation.selected() != previousValidationScenario) {
     previousValidationScenario = validation.selected();
     randomCyclesReady = false;
     topLight.reset();
     middleLight.reset();
     bottomLight.reset();
-    middlePulse.reset(millis());
+    middlePulse.reset(nowMs);
   }
   const DateTime now = validation.now();
 #else
-  const DateTime now = rtc.now();
+  if (rtcRefresh.ready(nowMs)) {
+    const DateTime candidate = rtc.now();
+    const bool accepted =
+        candidate.isValid() &&
+        rtcClockGuard.accept(candidate.unixtime(), nowMs);
+    if (accepted) {
+      cachedTime = candidate;
+      rtcSampleWarningActive = false;
+    } else if (!rtcSampleWarningActive) {
+      Serial.println("Ignoring invalid or implausible PCF8523 time sample.");
+      rtcSampleWarningActive = true;
+    }
+  }
+  const DateTime now = cachedTime;
 #endif
   if (now.second() != previousSecond) {
     previousSecond = now.second();
@@ -380,6 +437,6 @@ void loop() {
   } else {
     topLight.twinkle(plan.primary);
   }
-  middleLight.setSolid(rgbw(0, 0, 0, middlePulse.levelAt(millis())));
+  middleLight.setSolid(rgbw(0, 0, 0, middlePulse.levelAt(nowMs)));
   bottomLight.twinkle(DAY_COLORS[now.dayOfTheWeek()]);
 }
