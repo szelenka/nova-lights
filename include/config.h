@@ -29,6 +29,10 @@ constexpr uint8_t TWINKLE_DEPTH_MIN = 255;
 constexpr uint8_t TWINKLE_DEPTH_MAX = 255;
 constexpr uint8_t TWINKLE_MAX_ACTIVE = 3;
 
+constexpr uint32_t RTC_REFRESH_PERIOD_MS = 1000;
+constexpr uint32_t RTC_SAMPLE_TOLERANCE_SECONDS = 2;
+constexpr uint32_t WATCHDOG_TIMEOUT_MS = 8000;
+
 static_assert(TOP_LIGHT_PIXELS == 8 || TOP_LIGHT_PIXELS == 16,
               "Top light must contain 8 or 16 pixels");
 static_assert(MIDDLE_LIGHT_PIXELS == 8 || MIDDLE_LIGHT_PIXELS == 16,
@@ -46,3 +50,9 @@ static_assert(TWINKLE_DEPTH_MIN <= TWINKLE_DEPTH_MAX,
               "Twinkle depth range is invalid");
 static_assert(TWINKLE_MAX_ACTIVE > 0 && TWINKLE_MAX_ACTIVE <= 3,
               "Twinkle active count must be between one and three");
+static_assert(RTC_REFRESH_PERIOD_MS > 0,
+              "RTC refresh period must be greater than zero");
+static_assert(RTC_SAMPLE_TOLERANCE_SECONDS > 0,
+              "RTC sample tolerance must be greater than zero");
+static_assert(WATCHDOG_TIMEOUT_MS > RTC_REFRESH_PERIOD_MS,
+              "Watchdog must allow at least one RTC refresh period");

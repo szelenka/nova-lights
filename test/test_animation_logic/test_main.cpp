@@ -135,6 +135,20 @@ void test_top_twinkles_except_during_accents_and_color_blends() {
   TEST_ASSERT_TRUE(usesTopChase(blend, 57, 0));
 }
 
+void test_sunday_evening_hours_remain_in_normal_animation() {
+  constexpr std::array<uint8_t, 3> hours{17, 18, 19};
+  constexpr std::array<Color, 3> expectedColors{RED, ORANGE, PURPLE};
+
+  for (size_t index = 0; index < hours.size(); ++index) {
+    const AnimationPlan plan = prepareHour(hours[index], 10, 0);
+    TEST_ASSERT_EQUAL_UINT32(expectedColors[index], plan.primary);
+    TEST_ASSERT_EQUAL_INT(
+        static_cast<int>(AnimationMode::Normal),
+        static_cast<int>(animationMode(plan, false, 10, 0)));
+    TEST_ASSERT_FALSE(usesTopChase(plan, 10, 0));
+  }
+}
+
 void test_invalid_chase_configuration_preserves_current_frame() {
   std::array<Color, MAX_PIXELS> current{};
   current.fill(RED);
@@ -191,6 +205,7 @@ int main(int, char**) {
   RUN_TEST(test_quarter_hour_uses_75_percent_total_ring_coverage);
   RUN_TEST(test_animation_mode_prioritizes_off_transition_and_friday);
   RUN_TEST(test_top_twinkles_except_during_accents_and_color_blends);
+  RUN_TEST(test_sunday_evening_hours_remain_in_normal_animation);
   RUN_TEST(test_invalid_chase_configuration_preserves_current_frame);
   RUN_TEST(test_ring_color_transitions_are_distributed_not_adjacent);
   return UNITY_END();
