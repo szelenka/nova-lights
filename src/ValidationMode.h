@@ -47,7 +47,7 @@ class ValidationMode {
   };
 
   static constexpr uint32_t SCENARIO_DURATION_MS = 10000;
-  static constexpr std::array<Scenario, 9> SCENARIOS{{
+  static constexpr std::array<Scenario, 12> SCENARIOS{{
       {"normal", "Independent top/bottom twinkles and middle pulse", 2026, 7,
        27, 10, 10, 0},
       {"quarter", "Quarter-hour accent: 25% lit / 75% dark", 2026, 7, 27, 10,
@@ -61,6 +61,9 @@ class ValidationMode {
       {"morning", "Morning blue top-light twinkle", 2026, 7, 27, 7, 0, 0},
       {"sunday", "Sunday bottom-light white weekday color", 2026, 7, 26, 10,
        10, 0},
+      {"sunday17", "Sunday 17:30 normal animation", 2026, 7, 26, 17, 30, 0},
+      {"sunday18", "Sunday 18:30 normal animation", 2026, 7, 26, 18, 30, 0},
+      {"sunday19", "Sunday 19:30 normal animation", 2026, 7, 26, 19, 30, 0},
       {"saturday", "Saturday bottom-light red weekday color", 2026, 8, 1, 10,
        10, 0},
   }};
@@ -110,6 +113,11 @@ class ValidationMode {
       printList();
     } else if (std::strcmp(command_, "status") == 0) {
       printScenario();
+    } else if (std::strcmp(command_, "watchdog") == 0) {
+      Serial.println("Stopping the loop; watchdog should reboot within 8s.");
+      Serial.flush();
+      while (true) {
+      }
     } else if (std::strcmp(command_, "help") == 0 ||
                std::strcmp(command_, "?") == 0) {
       printHelp();
@@ -152,7 +160,8 @@ class ValidationMode {
 
   void printHelp() const {
     Serial.println(
-        "Commands: next (n), previous (p), auto, hold, list, status, help");
+        "Commands: next (n), previous (p), auto, hold, list, status, "
+        "watchdog, help");
     Serial.println("You can also enter a scenario name shown by list.");
   }
 
@@ -163,7 +172,7 @@ class ValidationMode {
   size_t commandLength_ = 0;
 };
 
-constexpr std::array<ValidationMode::Scenario, 9>
+constexpr std::array<ValidationMode::Scenario, 12>
     ValidationMode::SCENARIOS;
 
 #endif  // NOVA_VALIDATION_MODE
