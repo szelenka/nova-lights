@@ -47,7 +47,14 @@ pio device monitor
 ```
 
 The serial monitor runs at 115200 baud. PlatformIO installs the Arduino
-NeoPixel and RTClib dependencies declared in `platformio.ini`.
+NeoPixel, RTClib, and SleepyDog watchdog dependencies declared in
+`platformio.ini`.
+
+Production firmware caches the RTC value and refreshes it once per second
+instead of continuously polling the I2C bus. Invalid, backward, or implausible
+time samples are ignored so animations continue from the last known good time.
+An eight-second hardware watchdog restarts the QT Py if a peripheral
+transaction ever blocks the animation loop.
 
 ## Test
 
@@ -109,6 +116,7 @@ freezes its simulated clock there. Enter commands in the serial monitor:
 | `hold` | Stop automatic advancement |
 | `list` | Show all scenarios |
 | `status` | Print the current scenario |
+| `watchdog` | Stop the loop and verify an automatic reboot within 8 seconds |
 | `help` | Show available commands |
 | Scenario name | Jump directly to a scenario, such as `blend` or `friday` |
 
